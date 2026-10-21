@@ -5,6 +5,46 @@ with HTTP 200 that is cut off at `max_tokens`, empty because a reasoning model s
 thinking, content-filtered, or missing a finish reason. It returns a stable error code and a retry hint
 instead of letting half an answer flow downstream.
 
+## Quick start (English)
+
+```
+pip install .        # no dependencies, Python 3.10+
+```
+
+```python
+import llm_stopcheck as sc
+
+verdict = sc.check(response, max_tokens=3000)   # never raises; bad input gives malformed_response
+if not verdict.ok:
+    print(sc.format_record(verdict, model="my-model"))
+    if verdict.hint == sc.HINT_RAISE_MAX_TOKENS:
+        ...  # retry with a higher output cap
+
+text = sc.ensure(response)   # returns the text, or raises TruncatedError / EmptyOutputError / ...
+```
+
+`response` is parsed OpenAI-compatible JSON (OpenAI, LiteLLM, OpenRouter, vLLM, Ollama, DeepSeek) or an
+object with `model_dump()`, `to_dict()` or `dict()`. `native_finish_reason` is checked too, because
+LiteLLM and OpenRouter can normalise a `MAX_TOKENS` stop to `stop`.
+
+| code | meaning | hint |
+|---|---|---|
+| `ok` | fine (warnings `near_limit` / `at_limit` when `max_tokens` is given) | - |
+| `truncated` | output cap reached, the answer is cut off | `raise_max_tokens` |
+| `truncated_empty` | output cap reached with empty content | `raise_max_tokens` |
+| `reasoning_exhausted` | the budget went to reasoning, no answer | `raise_max_tokens` |
+| `tool_call_truncated` | tool-call arguments are incomplete | `raise_max_tokens` |
+| `empty_output` | normal stop but empty content | `retry` |
+| `content_filtered` | blocked by a provider filter | `fail` |
+| `refusal` | the model refused | `fail` |
+| `missing_finish_reason` | no finish reason (cut off?) | `retry` |
+| `unknown_finish_reason` | unrecognised value | `retry` |
+| `malformed_response` | not the expected shape | `retry` |
+
+CLI: `llm-stopcheck response.json --max-tokens 3000` or `curl ... | llm-stopcheck - --json`. Exit code 0 = ok,
+1 = failed verdict, 2 = usage or unreadable input. Log lines are sanitised (ASCII, no newlines, `=` replaced),
+so model output cannot forge a log record. Tests: `python -m unittest discover -s tests -t .`
+
 ## Miksi
 
 LLM-kutsu voi onnistua (HTTP 200) ja silti olla käyttökelvoton. Oikea tapaus: reasoning-malli käytti
@@ -37,7 +77,7 @@ text = sc.ensure(response)  # palauttaa tekstin tai heittää TruncatedError / E
 ```
 
 Toimii jäsennetyllä OpenAI-yhteensopivalla JSONilla (OpenAI, LiteLLM, OpenRouter, vLLM, Ollama,
-DeepSeek) sekä olioilla, joilla on `model_dump()` tai `to_dict()`. Lisäksi `native_finish_reason`
+DeepSeek) sekä olioilla, joilla on `model_dump()`, `to_dict()` tai `dict()`. Lisäksi `native_finish_reason`
 tarkistetaan: LiteLLM/OpenRouter voi normalisoida `MAX_TOKENS`-lopetuksen muotoon `stop`.
 
 ## Koodit
