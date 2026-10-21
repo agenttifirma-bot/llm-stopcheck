@@ -122,8 +122,10 @@ def extract_text(response: Any) -> str:
     """Text of the first choice, or an empty string."""
     data = _as_dict(response)
     try:
-        message = data["choices"][0].get("message") or {}
+        message = data["choices"][0].get("message")
     except (TypeError, KeyError, IndexError, AttributeError):
+        return ""
+    if not isinstance(message, dict):
         return ""
     return _text_of(message.get("content"))
 

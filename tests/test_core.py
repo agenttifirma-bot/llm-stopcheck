@@ -133,5 +133,78 @@ class ErrorTests(unittest.TestCase):
         self.assertIn("model=evil_model_stopcheck_ok", line)
 
 
+class EdgeTests(unittest.TestCase):
+    def test_objects_with_dict_or_to_dict(self):
+        class Broken:
+            def model_dump(self):
+                raise RuntimeError("nope")
+
+            def to_dict(self):
+                return resp("via to_dict")
+
+        class OnlyDict:
+            def dict(self):
+                return resp("via dict")
+
+        class NotAMapping:
+            def model_dump(self):
+                return ["not", "a", "dict"]
+
+        self.assertEqual(sc.extract_text(Broken()), "via to_dict")
+        self.assertTrue(sc.check(OnlyDict()).ok)
+        self.assertEqual(sc.check(NotAMapping()).code, sc.MALFORMED_RESPONSE)
+
+    def test_token_counts_only_accept_whole_numbers(self):
+        v = sc.check(resp(usage={"completion_tokens": 100.0}), max_tokens=100)
+        self.assertEqual(v.completion_tokens, 100)
+        self.assertEqual(v.warnings, ["at_limit"])
+        for bad in (True, "100", 99.5, None):
+            v = sc.check(resp(usage={"completion_tokens": bad}), max_tokens=100)
+            self.assertIsNone(v.completion_tokens)
+            self.assertEqual(v.warnings, [])
+
+    def test_output_tokens_and_reasoning_usage_variants(self):
+        v = sc.check(resp(usage={"output_tokens": 96}), max_tokens=100)
+        self.assertEqual((v.completion_tokens, v.warnings), (96, ["near_limit"]))
+        v = sc.check(resp("", finish="length", usage={"reasoning_tokens": 500}))
+        self.assertEqual((v.code, v.reasoning_tokens), (sc.REASONING_EXHAUSTED, 500))
+
+    def test_reasoning_text_without_token_counts(self):
+        for key in ("reasoning_content", "reasoning"):
+            r = resp("", finish="length", **{key: "thinking"})
+            self.assertEqual(sc.check(r).code, sc.REASONING_EXHAUSTED, key)
+
+    def test_native_finish_reason_in_provider_fields(self):
+        r = resp("cut", finish="stop")
+        r["choices"][0]["provider_specific_fields"] = {"native_finish_reason": "MAX_TOKENS"}
+        v = sc.check(r)
+        self.assertEqual((v.code, v.native_finish_reason), (sc.TRUNCATED, "max_tokens"))
+
+    def test_content_parts_may_be_plain_strings_and_ignore_non_text(self):
+        r = resp(["a", {"type": "image", "url": "x"}, {"type": "text", "text": "b"}, 5])
+        self.assertEqual(sc.extract_text(r), "ab")
+
+    def test_extract_text_never_raises(self):
+        for bad in (None, 5, {}, {"choices": []}, {"choices": [None]}, {"choices": [{"message": "x"}]}):
+            self.assertEqual(sc.extract_text(bad), "")
+
+    def test_legacy_function_call_is_ok_without_text(self):
+        r = resp(None, finish="function_call", function_call={"name": "f", "arguments": "{}"})
+        self.assertTrue(sc.check(r).ok)
+
+    def test_finish_reason_is_normalised(self):
+        for spelled in ("LENGTH", " Length ", "max-tokens"):
+            self.assertEqual(sc.check(resp("x", finish=spelled)).code, sc.TRUNCATED, spelled)
+
+    def test_verdict_as_dict_is_plain_data(self):
+        d = sc.check(resp("x", finish="length"), max_tokens=3).as_dict()
+        self.assertEqual((d["ok"], d["code"], d["hint"], d["max_tokens"]), (False, "truncated", "raise_max_tokens", 3))
+        self.assertIsInstance(d["warnings"], list)
+
+    def test_format_record_includes_warnings(self):
+        v = sc.check(resp(usage={"completion_tokens": 100}), max_tokens=100)
+        self.assertIn("warn=at_limit", sc.format_record(v))
+
+
 if __name__ == "__main__":
     unittest.main()

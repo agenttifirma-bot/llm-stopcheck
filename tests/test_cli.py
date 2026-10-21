@@ -45,5 +45,37 @@ class CliTests(unittest.TestCase):
         self.assertEqual(run([])[0], 2)
 
 
+class CliExtraTests(CliTests):
+    def test_reads_stdin_with_dash(self):
+        import unittest.mock as mock
+        data = json.dumps({"choices": [{"finish_reason": "stop", "message": {"content": "hi"}}]})
+        with mock.patch("sys.stdin", io.StringIO(data)):
+            code, out, _ = run(["-"])
+        self.assertEqual((code, "stopcheck=ok" in out), (0, True))
+
+    def test_warnings_go_to_stderr_and_exit_stays_0(self):
+        path = self.write({"choices": [{"finish_reason": "stop", "message": {"content": "hi"}}],
+                           "usage": {"completion_tokens": 10}})
+        code, out, err = run([path, "--max-tokens", "10"])
+        self.assertEqual(code, 0)
+        self.assertIn("warn=at_limit", out)
+        self.assertIn("warnings: at_limit", err)
+
+    def test_help_exits_0(self):
+        code, out, _ = run(["--help"])
+        self.assertEqual(code, 0)
+        self.assertIn("usage:", out)
+
+    def test_module_entry_point(self):
+        import subprocess
+        import sys
+        src = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src")
+        path = self.write({"choices": [{"finish_reason": "length", "message": {"content": "x"}}]})
+        r = subprocess.run([sys.executable, "-m", "llm_stopcheck", path], capture_output=True, text=True,
+                           env=dict(os.environ, PYTHONPATH=src))
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("stopcheck=truncated", r.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()

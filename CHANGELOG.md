@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Fix: `extract_text()` raised `AttributeError` when `choices[0].message` was not an object; it now returns an empty string like the rest of the API.
+- Tests: 19 new tests for edge cases (objects with `dict()`/`to_dict()`, token-count parsing, provider-specific native finish reason, content parts, CLI stdin/warnings/`python -m`); branch coverage 91 % -> 98 %.
+- README: English quick start with code table and CLI notes.
+
 ## 0.1.0
 
 - `check()` classifies chat-completion responses: truncated, truncated_empty, reasoning_exhausted,
