@@ -1,3 +1,5 @@
+import pathlib
+import re
 import unittest
 
 import llm_stopcheck as sc
@@ -204,6 +206,53 @@ class EdgeTests(unittest.TestCase):
     def test_format_record_includes_warnings(self):
         v = sc.check(resp(usage={"completion_tokens": 100}), max_tokens=100)
         self.assertIn("warn=at_limit", sc.format_record(v))
+
+
+def readme_retry_example():
+    """Compile the complete_with_retry example straight from README.md so the docs stay runnable."""
+    readme = pathlib.Path(__file__).resolve().parent.parent / "README.md"
+    for block in re.findall(r"```python\n(.*?)```", readme.read_text(encoding="utf-8"), re.S):
+        if "def complete_with_retry" in block:
+            namespace = {}
+            exec(compile(block, "README.md", "exec"), namespace)
+            return namespace["complete_with_retry"]
+    raise AssertionError("complete_with_retry example missing from README.md")
+
+
+class ReadmeRetryExampleTests(unittest.TestCase):
+    def setUp(self):
+        self.complete_with_retry = readme_retry_example()
+
+    def fake_call(self, *responses):
+        caps = []
+        queue = list(responses)
+
+        def call(max_tokens):
+            caps.append(max_tokens)
+            return queue.pop(0)
+        return call, caps
+
+    def test_length_then_stop_doubles_cap_and_returns_text(self):
+        call, caps = self.fake_call(resp("half", finish="length"), resp("whole answer"))
+        self.assertEqual(self.complete_with_retry(call, max_tokens=1000), "whole answer")
+        self.assertEqual(caps, [1000, 2000])
+
+    def test_no_retry_when_first_call_is_fine(self):
+        call, caps = self.fake_call(resp("done"))
+        self.assertEqual(self.complete_with_retry(call, max_tokens=500), "done")
+        self.assertEqual(caps, [500])
+
+    def test_gives_up_after_attempts_with_typed_error(self):
+        call, caps = self.fake_call(*[resp("cut", finish="length")] * 3)
+        with self.assertRaises(sc.TruncatedError):
+            self.complete_with_retry(call, max_tokens=100, attempts=3)
+        self.assertEqual(caps, [100, 200, 400])
+
+    def test_non_retryable_failure_is_not_retried(self):
+        call, caps = self.fake_call(resp("", finish="content_filter"))
+        with self.assertRaises(sc.ContentFilteredError):
+            self.complete_with_retry(call)
+        self.assertEqual(len(caps), 1)
 
 
 if __name__ == "__main__":

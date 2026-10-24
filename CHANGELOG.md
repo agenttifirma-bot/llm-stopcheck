@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- README: working `complete_with_retry` example that doubles `max_tokens` while `check()` hints `raise_max_tokens`; tests run the README code with a fake call (length first, then stop).
 - CI: Dependabot patch/minor updates are merged automatically (major stays for a human).
 - Fix: `extract_text()` raised `AttributeError` when `choices[0].message` was not an object; it now returns an empty string like the rest of the API.
 - Tests: 19 new tests for edge cases (objects with `dict()`/`to_dict()`, token-count parsing, provider-specific native finish reason, content parts, CLI stdin/warnings/`python -m`); branch coverage 91 % -> 98 %.
