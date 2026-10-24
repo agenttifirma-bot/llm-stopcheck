@@ -23,6 +23,22 @@ if not verdict.ok:
 text = sc.ensure(response)   # returns the text, or raises TruncatedError / EmptyOutputError / ...
 ```
 
+Retry with a higher output cap when `check()` says `raise_max_tokens` (`call` is your own function that
+sends the request with the given `max_tokens` and returns the response):
+
+```python
+import llm_stopcheck as sc
+
+def complete_with_retry(call, max_tokens=1000, attempts=3):
+    for attempt in range(attempts):
+        response = call(max_tokens=max_tokens)
+        verdict = sc.check(response, max_tokens=max_tokens)
+        if verdict.hint != sc.HINT_RAISE_MAX_TOKENS or attempt == attempts - 1:
+            break
+        max_tokens *= 2   # truncated: try again with a doubled cap
+    return sc.ensure(response, max_tokens=max_tokens)   # text, or a typed error if still failing
+```
+
 `response` is parsed OpenAI-compatible JSON (OpenAI, LiteLLM, OpenRouter, vLLM, Ollama, DeepSeek) or an
 object with `model_dump()`, `to_dict()` or `dict()`. `native_finish_reason` is checked too, because
 LiteLLM and OpenRouter can normalise a `MAX_TOKENS` stop to `stop`.
@@ -75,6 +91,10 @@ if not verdict.ok:
 
 text = sc.ensure(response)  # palauttaa tekstin tai heittää TruncatedError / EmptyOutputError / ...
 ```
+
+Uudelleenyritys isommalla rajalla: katso `complete_with_retry` englanninkielisestä pikaoppaasta
+ylhäällä. Se kaksinkertaistaa `max_tokens`-rajan niin kauan kuin `check()` antaa vihjeen `raise_max_tokens`
+(enintään `attempts` yritystä) ja palauttaa tekstin tai heittää tyypitetyn virheen.
 
 Toimii jäsennetyllä OpenAI-yhteensopivalla JSONilla (OpenAI, LiteLLM, OpenRouter, vLLM, Ollama,
 DeepSeek) sekä olioilla, joilla on `model_dump()`, `to_dict()` tai `dict()`. Lisäksi `native_finish_reason`
