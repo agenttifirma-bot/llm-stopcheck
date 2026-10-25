@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- CLI: `--near-limit`, `--allow-empty` and `--version`; several files accepted, exit code is the worst one.
 - Julkaisuvalmius: project.urls ja .github/workflows/julkaise.yml (PyPI Trusted Publishing, ajetaan vain release-julkaisusta).
 - README: working `complete_with_retry` example that doubles `max_tokens` while `check()` hints `raise_max_tokens`; tests run the README code with a fake call (length first, then stop).
 - CI: Dependabot patch/minor updates are merged automatically (major stays for a human).

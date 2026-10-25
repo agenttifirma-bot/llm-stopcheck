@@ -66,6 +66,51 @@ class CliExtraTests(CliTests):
         self.assertEqual(code, 0)
         self.assertIn("usage:", out)
 
+    def test_version(self):
+        import llm_stopcheck
+        code, out, _ = run(["--version"])
+        self.assertEqual(code, 0)
+        self.assertIn(llm_stopcheck.__version__, out)
+
+    def test_near_limit_option(self):
+        path = self.write({"choices": [{"finish_reason": "stop", "message": {"content": "hi"}}],
+                           "usage": {"completion_tokens": 90}})
+        code, out, _ = run([path, "--max-tokens", "100"])
+        self.assertNotIn("near_limit", out)
+        code, out, err = run([path, "--max-tokens", "100", "--near-limit", "0.9"])
+        self.assertEqual(code, 0)
+        self.assertIn("warnings: near_limit", err)
+
+    def test_near_limit_out_of_range_exit_2(self):
+        path = self.write({"choices": [{"finish_reason": "stop", "message": {"content": "hi"}}]})
+        self.assertEqual(run([path, "--near-limit", "0"])[0], 2)
+        self.assertEqual(run([path, "--near-limit", "1.5"])[0], 2)
+
+    def test_allow_empty(self):
+        path = self.write({"choices": [{"finish_reason": "stop", "message": {"content": ""}}]})
+        code, out, _ = run([path])
+        self.assertEqual(code, 1)
+        self.assertIn("stopcheck=empty_output", out)
+        code, out, _ = run([path, "--allow-empty"])
+        self.assertEqual(code, 0)
+        self.assertIn("stopcheck=ok", out)
+
+    def test_multiple_files_worst_exit_code(self):
+        good = self.write({"choices": [{"finish_reason": "stop", "message": {"content": "hi"}}]})
+        bad = self.write({"choices": [{"finish_reason": "length", "message": {"content": "x"}}]})
+        code, out, _ = run([good, bad, good])
+        self.assertEqual(code, 1)
+        self.assertEqual(len(out.splitlines()), 3)
+        self.assertIn("stopcheck=truncated", out.splitlines()[1])
+        self.assertEqual(run([good, good])[0], 0)
+
+    def test_multiple_files_unreadable_gives_2_but_checks_the_rest(self):
+        bad = self.write({"choices": [{"finish_reason": "length", "message": {"content": "x"}}]})
+        code, out, err = run(["/nonexistent/file.json", bad])
+        self.assertEqual(code, 2)
+        self.assertIn("stopcheck=truncated", out)
+        self.assertIn("/nonexistent/file.json", err)
+
     def test_module_entry_point(self):
         import subprocess
         import sys

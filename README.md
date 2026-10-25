@@ -57,8 +57,10 @@ LiteLLM and OpenRouter can normalise a `MAX_TOKENS` stop to `stop`.
 | `unknown_finish_reason` | unrecognised value | `retry` |
 | `malformed_response` | not the expected shape | `retry` |
 
-CLI: `llm-stopcheck response.json --max-tokens 3000` or `curl ... | llm-stopcheck - --json`. Exit code 0 = ok,
-1 = failed verdict, 2 = usage or unreadable input. Log lines are sanitised (ASCII, no newlines, `=` replaced),
+CLI: `llm-stopcheck response.json --max-tokens 3000` or `curl ... | llm-stopcheck - --json`. Several files
+may be given (one output line each); the exit code is the worst one. Exit code 0 = ok, 1 = failed verdict,
+2 = usage or unreadable input. `--near-limit 0.9` changes the `near_limit` warning threshold (default 0.95),
+`--allow-empty` accepts empty content (tool-call-only responses), `--version` prints the version. Log lines are sanitised (ASCII, no newlines, `=` replaced),
 so model output cannot forge a log record. Tests: `python -m unittest discover -s tests -t .`
 
 ## Miksi
@@ -125,6 +127,10 @@ curl ... | llm-stopcheck - --json
 
 Tulostus: `stopcheck=reasoning_exhausted finish=length native=- tokens=3000/3000 reasoning_tokens=3000 hint=raise_max_tokens`.
 Poistumiskoodi 0 = ok, 1 = epäonnistunut tuomio, 2 = käyttö- tai lukuvirhe.
+
+Useita tiedostoja voi antaa kerralla (`llm-stopcheck a.json b.json`): jokaisesta tulee oma rivi ja
+poistumiskoodi on pahin niistä. Valitsimet: `--near-limit 0.9` muuttaa `near_limit`-varoituksen rajaa
+(oletus 0.95), `--allow-empty` hyväksyy tyhjän sisällön (pelkät työkalukutsut) ja `--version` tulostaa version.
 
 `format_record` puhdistaa arvot (vain ASCII, ei rivinvaihtoja, `=` korvataan), joten lokirivin
 väärentäminen mallin tuotoksella ei onnistu.
