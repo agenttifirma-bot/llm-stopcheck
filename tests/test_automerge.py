@@ -168,6 +168,26 @@ class ArvioiTests(unittest.TestCase):
         self.assertFalse(ok[0])
 
 
+class SamanRepoArvioiTests(unittest.TestCase):
+    """Saman repon PR (ei forkki): vain dokumentit ja testit, ei sovelluskoodia. Botin forkin laajempi koodisaanto ei saa vuotaa tahan."""
+
+    def test_samassa_repossa_sovelluskoodi_hylataan(self):
+        sallittu, syyt = am.arvioi(pr(), files("src/app.py"))
+        self.assertFalse(sallittu)
+        self.assertTrue(syyt)
+
+    def test_samassa_repossa_sovelluskoodi_hylataan_myos_ominaisuushaaralla(self):
+        # haaran nimi yo/ominaisuus-* ei avaa koodia saman repon PR:lle, vain botin forkille
+        self.assertFalse(am.arvioi(pr(head_ref="yo/ominaisuus-x"), files("src/app.py"))[0])
+
+    def test_samassa_repossa_testi_ja_dokumentti_sallitaan(self):
+        sallittu, syyt = am.arvioi(pr(), files("test/test_uusi.py", "README.md"))
+        self.assertTrue(sallittu, syyt)
+
+    def test_samassa_repossa_yksi_koodi_tiedosto_riittaa_hylkaykseen(self):
+        self.assertFalse(am.arvioi(pr(), files("README.md", "src/app.py"))[0])
+
+
 class BotinForkArvioiTests(unittest.TestCase):
     def bot_pr(self, head_ref="yo/readme-abc", **kw):
         return pr(head_repo="agenttifirma-bot/repo", base_repo="org/repo",
