@@ -255,5 +255,16 @@ class ReadmeRetryExampleTests(unittest.TestCase):
         self.assertEqual(len(caps), 1)
 
 
+class NonFiniteTokenCountTest(unittest.TestCase):
+    def test_inf_and_nan_usage_are_ignored(self):
+        for bad in (float("inf"), float("-inf"), float("nan")):
+            resp = {"choices": [{"finish_reason": "stop", "message": {"content": "x"}}],
+                    "usage": {"completion_tokens": bad, "reasoning_tokens": bad}}
+            verdict = sc.check(resp, max_tokens=100)
+            self.assertTrue(verdict.ok)
+            self.assertIsNone(verdict.completion_tokens)
+
+
 if __name__ == "__main__":
     unittest.main()
+
