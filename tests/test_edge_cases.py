@@ -385,9 +385,11 @@ class AutomergeMainExtraTests(unittest.TestCase):
     TEST_FILE = [{"filename": "tests/test_x.py", "status": "added", "changes": 5, "previous_filename": None}]
 
     def run_main(self, env, **patches):
-        with mock.patch.dict(os.environ, env, clear=True), contextlib.redirect_stdout(io.StringIO()) as out:
+        # ExitStack toimii Pythonissa 3.10; TestCase.enterContext tuli vasta versiossa 3.11.
+        with mock.patch.dict(os.environ, env, clear=True), contextlib.redirect_stdout(io.StringIO()) as out, \
+                contextlib.ExitStack() as stack:
             for name, value in patches.items():
-                self.enterContext(mock.patch.object(am, name, **value))
+                stack.enter_context(mock.patch.object(am, name, **value))
             return am.main(), out.getvalue()
 
     def test_bot_testit_fork_gets_auto_merge(self):
