@@ -1,247 +1,266 @@
-"""Tests for tools/automerge.py — the GitHub auto-merge arbitration rules.
-
-These rules decide, from PR metadata and a file list alone, whether a small PR may be
-auto-merged. Every branch of ``arvioi``/``polku_ok``/``botin_*`` is exercised here,
-since the module ships with no coverage of its own.
-"""
+import json
+import os
+import pathlib
+import subprocess
+import tempfile
 import unittest
-import unittest.mock
+from unittest import mock
 
 from tools import automerge as am
 
-
-def pr(**overrides):
-    """A default, mergeable same-repo PR; override any field."""
-    base = {
-        "draft": False,
-        "head_repo": "org/repo",
-        "base_repo": "org/repo",
-        "labels": [],
-        "author": "someone",
-        "head_ref": "fix-1",
-        "base_ref": "main",
-    }
-    base.update(overrides)
-    return base
+SHA = "a" * 40
+MUU_SHA = "b" * 40
+PR = {"draft": False, "head_repo": "o/r", "base_repo": "o/r", "labels": [], "author": "tonyweckstrom1987",
+      "head_ref": "korjaus/x", "base_ref": "main", "head_sha": SHA}
+BOTTI_PR = dict(PR, head_repo="agenttifirma-bot/r", author="agenttifirma-bot", head_ref="yo/jotain-2026-11-04")
 
 
-def files(*filenames):
-    return [{"filename": f, "status": "modified", "changes": 1,
-             "previous_filename": None} for f in filenames]
+def tied(nimi, status="modified", changes=5, patch="@@ -1 +1 @@\n-a\n+b", **lisa):
+    d = {"filename": nimi, "status": status, "changes": changes, "patch": patch}
+    d.update(lisa)
+    return d
 
 
-class PolkuOkTests(unittest.TestCase):
-    def test_markdown_ok(self):
-        self.assertTrue(am.polku_ok("README.md")[0])
+def hyvaksynta(sha=SHA, paatos="HYVAKSYTTY", kuka="agenttifirma-bot"):
+    return {"user": kuka, "body": "Tarkastus\n\n<!-- riippumaton-tarkastus v1 sha=%s paatos=%s -->" % (sha, paatos)}
 
-    def test_docs_markdown_ok(self):
-        self.assertTrue(am.polku_ok("docs/guide/foo.md")[0])
 
-    def test_test_py_ok(self):
-        self.assertTrue(am.polku_ok("test/x/test_foo.py")[0])
+OK = [hyvaksynta()]
 
-    def test_non_doc_extension_rejected(self):
-        self.assertFalse(am.polku_ok("src/app.py")[0])
 
-    def test_empty_path_rejected(self):
-        ok, syy = am.polku_ok("")
+class RajatutTesti(unittest.TestCase):
+    def test_tavallinen_koodi_kelpaa_tarkastettuna(self):
+        for nimi in ("agentti/ajo.py", "claudejono/ajuri.py", "isanta/asenna.sh", "tools/mutantit.py", "README.md",
+                     "test/test_x.py", "yojono/test_uusi.py", "requirements.txt", "docs/a.md"):
+            ok, syyt = am.arvioi(PR, [tied(nimi)], OK)
+            self.assertTrue(ok, (nimi, syyt))
+
+    def test_rajatut_polut(self):
+        for nimi, luokka in ((".github/workflows/ci.yml", "tyonkulut"), ("tools/automerge.py", "automergen"),
+                             ("agentti/pr_kutsu.py", "oikeudet"), ("agentti/github_app.py", "oikeudet"),
+                             ("claudejono/claudejono-pr", "oikeudet"), ("claudejono/sudoers.claudejono", "oikeudet"),
+                             ("claudejono/asenna-kayttaja.sh", "oikeudet"), ("agentti/rajat.py", "kulukatot"),
+                             ("agentti/config.py", "kulukatot"), ("claudejono/varaus.py", "kulukatot"),
+                             ("yojono/ajuri.py", "kulukatot"), ("isanta/nftables.conf", "palomuuri"),
+                             ("isanta/palomuuri.sh", "palomuuri"), (".env", "salaisuudet"), ("x/.env.local", "salaisuudet"),
+                             ("docs/api_key.md", "salaisuudet"), ("a/token.txt", "salaisuudet"), ("k.pem", "salaisuudet"),
+                             ("ssh/id_ed25519", "salaisuudet"), ("action.yml", "julkaistu"), ("dist/index.js", "julkaistu"),
+                             ("../x.py", "polku"), ("/etc/passwd", "polku"), ("a b.py", "polku")):
+            ok, syyt = am.arvioi(PR, [tied(nimi)], OK)
+            self.assertFalse(ok, nimi)
+            self.assertTrue(any(luokka in s for s in syyt), (nimi, syyt))
+
+    def test_uudelleennimeaminen_rajatusta_ei_kelpaa(self):
+        ok, syyt = am.arvioi(PR, [tied("agentti/x.py", status="renamed", previous_filename="agentti/rajat.py")], OK)
         self.assertFalse(ok)
-        self.assertIn("tyhja", syy)
+        self.assertIn("rajattu (kulukatot ja rajat): agentti/rajat.py", syyt)
 
-    def test_protected_paths_rejected(self):
-        for p in ("tools/x.py", ".github/workflows/ci.yml", "isanta/d.py",
-                  "foo/systemd/unit", "agentti/config.py", "agentti/rajat.py",
-                  ".env", "dist/x.md", "yojono/a.md", "action.yaml", "action.yml",
-                  "requirements.txt", "pyproject.toml", "package.json", "Dockerfile",
-                  "a/../b.md"):
-            self.assertFalse(am.polku_ok(p)[0], p)
+    def test_poisto_ja_uudelleennimeaminen_kelpaavat_muualla(self):
+        self.assertTrue(am.arvioi(PR, [tied("agentti/vanha.py", status="removed", patch=None, changes=0)], OK)[0])
+        self.assertTrue(am.arvioi(PR, [tied("agentti/uusi.py", status="renamed", previous_filename="agentti/vanha.py")], OK)[0])
 
-    def test_secret_pattern_rejected(self):
-        self.assertFalse(am.polku_ok("secret.md")[0])
-        self.assertFalse(am.polku_ok("my_APItoken.md")[0])
+    def test_yojonon_testi_kelpaa_mutta_muu_yojono_ei(self):
+        self.assertTrue(am.arvioi(PR, [tied("yojono/test_ajuri.py")], OK)[0])
+        for nimi in ("yojono/ajuri.py", "yojono/test_x.sh", "yojono/test_x.py\n", "yojono/sub/test_x.py"):
+            self.assertFalse(am.arvioi(PR, [tied(nimi)], OK)[0], nimi)
 
+    def test_kauppatiimin_raha_rajattu_vain_kauppatiimissa(self):
+        kt = dict(PR, head_repo="o/kauppatiimi", base_repo="o/kauppatiimi")
+        for nimi in ("riskivahti.py", "src/salkku.py", "kirjanpito.py", "asetukset.py", "data/x.csv", "kt.service", "a.db"):
+            ok, syyt = am.arvioi(kt, [tied(nimi)], OK)
+            self.assertFalse(ok, nimi)
+            self.assertTrue(any("oikea raha" in s for s in syyt), syyt)
+        self.assertTrue(am.arvioi(kt, [tied("strategia.py")], OK)[0])
+        self.assertTrue(am.arvioi(PR, [tied("salkku.py")], OK)[0])
 
-class BotinForkkiSyytTests(unittest.TestCase):
-    def test_ok_fork_from_bot(self):
-        p = pr(head_repo="agenttifirma-bot/repo", base_repo="org/repo",
-               author="agenttifirma-bot", head_ref="yo/readme-abc123", base_ref="main")
-        self.assertEqual(am.botin_forkki_syyt(p), [])
+    def test_rajatut_repot(self):
+        for repo in ("o/tonyweckstrom1987.github.io", "o/agenttifirma-docs"):
+            ok, syyt = am.arvioi(dict(PR, head_repo=repo, base_repo=repo), [tied("README.md")], OK)
+            self.assertFalse(ok, repo)
+            self.assertTrue(any(s.startswith("rajattu repo") for s in syyt), syyt)
 
-    def test_master_base_accepted(self):
-        p = pr(head_repo="agenttifirma-bot/repo", base_repo="org/repo",
-               author="agenttifirma-bot", head_ref="yo/testit-x", base_ref="master")
-        self.assertEqual(am.botin_forkki_syyt(p), [])
-
-    def test_non_bot_author_rejected(self):
-        p = pr(head_repo="agenttifirma-bot/repo", author="human", head_ref="yo/readme-x")
-        self.assertIn("PR ei ole saman repon haarasta", am.botin_forkki_syyt(p))
-
-    def test_author_case_insensitive(self):
-        p = pr(head_repo="agenttifirma-bot/repo", author="AgenttiFirma-BOT",
-               head_ref="yo/readme-x")
-        self.assertEqual(am.botin_forkki_syyt(p), [])
-
-    def test_wrong_repo_named_fork_rejected(self):
-        # head_repo must be BOTTI/<base repo name>
-        p = pr(head_repo="agenttifirma-bot/other", base_repo="org/repo",
-               author="agenttifirma-bot", head_ref="yo/readme-x")
-        self.assertIn("forkki ei ole botin oma fork samasta reposta", am.botin_forkki_syyt(p))
-
-    def test_empty_base_repo_name(self):
-        p = pr(head_repo="agenttifirma-bot/x", base_repo="norepo",
-               author="agenttifirma-bot", head_ref="yo/readme-x")
-        # "norepo" has no "/", so base repo name is empty -> rejected
-        self.assertIn("forkki ei ole botin oma fork samasta reposta", am.botin_forkki_syyt(p))
-
-    def test_non_main_base_rejected(self):
-        p = pr(head_repo="agenttifirma-bot/repo", base_repo="org/repo",
-               author="agenttifirma-bot", head_ref="yo/readme-x", base_ref="dev")
-        self.assertIn("base ei ole main eika master", am.botin_forkki_syyt(p))
-
-    def test_bad_branch_name_rejected(self):
-        p = pr(head_repo="agenttifirma-bot/repo", base_repo="org/repo",
-               author="agenttifirma-bot", head_ref="feature-x")
-        self.assertIn("botin haaran nimi ei ole yo/(readme|testit|ominaisuus)-*",
-                      am.botin_forkki_syyt(p))
-
-    def test_branch_must_be_readme_testit_or_ominaisuus(self):
-        p = pr(head_repo="agenttifirma-bot/repo", base_repo="org/repo",
-               author="agenttifirma-bot", head_ref="yo/other-x")
-        self.assertIn("botin haaran nimi ei ole yo/(readme|testit|ominaisuus)-*",
-                      am.botin_forkki_syyt(p))
+    def test_automergen_omat_saannot_ovat_rajattuja(self):
+        # Automerge ei saa koskaan yhdistaa omia saantojaan tassa repossa (Tony yhdistaa ne).
+        for nimi in (".github/workflows/automerge.yml", "tools/automerge.py"):
+            self.assertIsNotNone(am.rajattu("llm-stopcheck", nimi), nimi)
 
 
-class BotinKoodiOkTests(unittest.TestCase):
-    def test_py_and_md_allowed(self):
-        self.assertTrue(am.botin_koodi_ok("src/foo.py")[0])
-        self.assertTrue(am.botin_koodi_ok("README.md")[0])
+class SisaltoTesti(unittest.TestCase):
+    def test_yksityinen_osoite_lisatylla_rivilla_estaa(self):
+        for rivi in ("url = 'http://192." + "168.1.116:4000'", "10." + "0.0.5", "172." + "20.1.1", "host.tail1234.ts" + ".net", "100." + "101.2.3"):
+            ok, syyt = am.arvioi(PR, [tied("a.py", patch="@@ -1 +1 @@\n-x\n+" + rivi)], OK)
+            self.assertFalse(ok, rivi)
+            self.assertIn("lisatylla rivilla yksityinen osoite tai tailnet-nimi: a.py", syyt)
 
-    def test_bad_suffix_rejected(self):
-        self.assertFalse(am.botin_koodi_ok("src/foo.txt")[0])
+    def test_poistettu_osoite_ja_tavallinen_teksti_eivat_esta(self):
+        for patch in ("@@ -1 +1 @@\n-192." + "168.1.116\n+CLAUDEJONO_URL", "@@\n+versio 1.2.3\n+127.0.0.1\n+8.8.8.8",
+                      "@@\n+172.15.0.1 ja 172.32.0.1\n+100.63.1.1"):
+            self.assertTrue(am.arvioi(PR, [tied("a.py", patch=patch)], OK)[0], patch)
 
-    def test_unsafe_path_chars_rejected(self):
-        self.assertFalse(am.botin_koodi_ok("src/foo bar.py")[0])
-
-    def test_protected_paths_rejected(self):
-        for p in (".github/w.yml", "tools/x.py", "requirements.txt", "pyproject.toml", "yojono/a.py"):
-            self.assertFalse(am.botin_koodi_ok(p)[0], p)
-
-
-class ArvioiTests(unittest.TestCase):
-    def test_simple_doc_pr_accepted(self):
-        sallittu, syyt = am.arvioi(pr(), files("README.md"))
-        self.assertTrue(sallittu, syyt)
-        self.assertEqual(syyt, [])
-
-    def test_draft_rejected(self):
-        self.assertFalse(am.arvioi(pr(draft=True), files("README.md"))[0])
-
-    def test_no_files_rejected(self):
-        self.assertFalse(am.arvioi(pr(), [])[0])
-
-    def test_too_many_files_rejected(self):
-        self.assertFalse(am.arvioi(pr(), files(*["f%d.md" % i for i in range(21)]))[0])
-
-    def test_too_many_lines_rejected(self):
-        fs = {"filename": "README.md", "status": "modified", "changes": 201, "previous_filename": None}
-        self.assertFalse(am.arvioi(pr(), [fs])[0])
-
-    def test_exactly_at_line_limit_ok(self):
-        fs = {"filename": "README.md", "status": "modified", "changes": 200, "previous_filename": None}
-        self.assertTrue(am.arvioi(pr(), [fs])[0])
-
-    def test_removed_file_rejected(self):
-        self.assertFalse(am.arvioi(pr(), [{"filename": "x.md", "status": "removed", "changes": 1,
-                                            "previous_filename": None}])[0])
-
-    def test_renamed_file_rejected(self):
-        self.assertFalse(am.arvioi(pr(), [{"filename": "b.md", "status": "renamed", "changes": 1,
-                                            "previous_filename": "a.md"}])[0])
-
-    def test_opt_out_label_rejected(self):
-        self.assertFalse(am.arvioi(pr(labels=["ei-automerge"]), files("README.md"))[0])
-
-    def test_previous_filename_checked_too(self):
-        # a moved/renamed file whose previous path is protected must be rejected
-        ok = am.arvioi(pr(), [{"filename": "README.md", "status": "modified", "changes": 1,
-                               "previous_filename": ".env"}])
-        self.assertFalse(ok[0])
+    def test_puuttuva_patch_estaa_kun_rivit_muuttuvat(self):
+        ok, syyt = am.arvioi(PR, [tied("kuva.png", patch=None, changes=0), tied("iso.py", patch=None, changes=900)], OK)
+        self.assertFalse(ok)
+        self.assertEqual(syyt, ["patch puuttuu (binaari tai liian suuri): iso.py"])
 
 
-class SamanRepoArvioiTests(unittest.TestCase):
-    """Saman repon PR (ei forkki): vain dokumentit ja testit, ei sovelluskoodia. Botin forkin laajempi koodisaanto ei saa vuotaa tahan."""
+class TarkastajaTesti(unittest.TestCase):
+    def test_ilman_tarkastusta_ei_kelpaa(self):
+        ok, syyt = am.arvioi(PR, [tied("a.py")])
+        self.assertFalse(ok)
+        self.assertEqual(syyt, ["riippumaton tarkastus: odottaa"])
 
-    def test_samassa_repossa_sovelluskoodi_hylataan(self):
-        sallittu, syyt = am.arvioi(pr(), files("src/app.py"))
-        self.assertFalse(sallittu)
-        self.assertTrue(syyt)
+    def test_vain_tarkastajan_kommentti_ja_oikea_sha(self):
+        for kommentit in ([hyvaksynta(kuka="tonyweckstrom1987")], [hyvaksynta(kuka="joku")], [hyvaksynta(sha=MUU_SHA)],
+                          [{"user": "agenttifirma-bot", "body": "riippumaton-tarkastus v1 sha=%s paatos=HYVAKSYTTY" % SHA}],
+                          [{"user": "agenttifirma-bot", "body": None}], [{"user": None, "body": hyvaksynta()["body"]}]):
+            self.assertFalse(am.arvioi(PR, [tied("a.py")], kommentit)[0], kommentit)
 
-    def test_samassa_repossa_sovelluskoodi_hylataan_myos_ominaisuushaaralla(self):
-        # haaran nimi yo/ominaisuus-* ei avaa koodia saman repon PR:lle, vain botin forkille
-        self.assertFalse(am.arvioi(pr(head_ref="yo/ominaisuus-x"), files("src/app.py"))[0])
+    def test_kaksi_merkkia_samassa_kommentissa_ei_kelpaa(self):
+        kaksi = {"user": "agenttifirma-bot", "body": hyvaksynta(paatos="HYLATTY")["body"] + "\n" + hyvaksynta()["body"]}
+        self.assertFalse(am.arvioi(PR, [tied("a.py")], [kaksi])[0])
 
-    def test_samassa_repossa_testi_ja_dokumentti_sallitaan(self):
-        sallittu, syyt = am.arvioi(pr(), files("test/test_uusi.py", "README.md"))
-        self.assertTrue(sallittu, syyt)
+    def test_viimeisin_paatos_ratkaisee(self):
+        self.assertFalse(am.arvioi(PR, [tied("a.py")], [hyvaksynta(), hyvaksynta(paatos="HYLATTY")])[0])
+        self.assertTrue(am.arvioi(PR, [tied("a.py")], [hyvaksynta(paatos="HYLATTY"), hyvaksynta()])[0])
+        self.assertTrue(am.arvioi(PR, [tied("a.py")], [hyvaksynta(), hyvaksynta(sha=MUU_SHA, paatos="HYLATTY")])[0])
 
-    def test_samassa_repossa_yksi_koodi_tiedosto_riittaa_hylkaykseen(self):
-        self.assertFalse(am.arvioi(pr(), files("README.md", "src/app.py"))[0])
+    def test_muut_paatokset_nakyvat_syyna(self):
+        for p in ("HYLATTY", "RAJATTU", "EN_TIEDA"):
+            ok, syyt = am.arvioi(PR, [tied("a.py")], [hyvaksynta(paatos=p)])
+            self.assertFalse(ok)
+            self.assertEqual(syyt, ["riippumaton tarkastus: " + p])
 
-
-class BotinForkArvioiTests(unittest.TestCase):
-    def bot_pr(self, head_ref="yo/readme-abc", **kw):
-        return pr(head_repo="agenttifirma-bot/repo", base_repo="org/repo",
-                  author="agenttifirma-bot", head_ref=head_ref, base_ref="main", **kw)
-
-    def test_bot_readme_only_md(self):
-        sallittu, syyt = am.arvioi(self.bot_pr(), files("README.md"))
-        self.assertTrue(sallittu, syyt)
-
-    def test_bot_readme_rejects_py(self):
-        self.assertFalse(am.arvioi(self.bot_pr(), files("foo.py"))[0])
-
-    def test_bot_ominaisuus_allows_code(self):
-        sallittu, syyt = am.arvioi(self.bot_pr("yo/ominaisuus-start"),
-                                   [{"filename": "src/app.py", "status": "added", "changes": 5,
-                                     "previous_filename": None}])
-        self.assertTrue(sallittu, syyt)
-
-    def test_bot_ominaisuus_code_line_limit_400(self):
-        fs = {"filename": "src/app.py", "status": "modified", "changes": 401, "previous_filename": None}
-        self.assertFalse(am.arvioi(self.bot_pr("yo/ominaisuus-x"), [fs])[0])
-        fs["changes"] = 400
-        self.assertTrue(am.arvioi(self.bot_pr("yo/testit-x"), [fs])[0])
-
-    def test_bot_ominaisuus_dependency_file_rejected(self):
-        fs = {"filename": "requirements.txt", "status": "modified", "changes": 1, "previous_filename": None}
-        self.assertFalse(am.arvioi(self.bot_pr("yo/ominaisuus-x"), [fs])[0])
-
-    def test_bot_non_fork_author_on_fork_rejected(self):
-        p = pr(head_repo="agenttifirma-bot/repo", author="human", head_ref="yo/readme-x")
-        self.assertFalse(am.arvioi(p, files("README.md"))[0])
-
-    def test_bot_changes_sum_uses_default_limit_for_readme(self):
-        # readme branch keeps MAX_RIVEJA (200), not the 400 code limit
-        fs = {"filename": "README.md", "status": "modified", "changes": 250, "previous_filename": None}
-        self.assertFalse(am.arvioi(self.bot_pr("yo/readme-x"), [fs])[0])
+    def test_kelvoton_head_sha(self):
+        for sha in ("", None, "A" * 40, "a" * 39, SHA + "\n"):
+            self.assertFalse(am.arvioi(dict(PR, head_sha=sha), [tied("a.py")], [hyvaksynta(sha=(sha or "x"))])[0], sha)
 
 
-class MainTests(unittest.TestCase):
-    def test_invalid_repo_or_number_returns_2(self):
-        import os
-        with unittest.mock.patch.dict(os.environ, {"GITHUB_REPOSITORY": "bad repo", "PR_NUMBER": "12"},
-                                      clear=True):
-            self.assertEqual(am.main(), 2)
-        with unittest.mock.patch.dict(os.environ, {"GITHUB_REPOSITORY": "org/repo", "PR_NUMBER": "abc"},
-                                      clear=True):
-            self.assertEqual(am.main(), 2)
+class BotinForkkiTesti(unittest.TestCase):
+    def test_botin_pr_kelpaa(self):
+        self.assertTrue(am.arvioi(BOTTI_PR, [tied("agentti/ajo.py")], OK)[0])
 
-    def test_gh_failure_returns_1(self):
-        import os
-        with unittest.mock.patch.dict(os.environ, {"GITHUB_REPOSITORY": "org/repo", "PR_NUMBER": "1"},
-                                      clear=True), \
-                unittest.mock.patch.object(am, "hae_pr", side_effect=RuntimeError("boom")):
+    def test_muu_tekija_tai_forkki_ei_kelpaa(self):
+        for kentat in ({"author": "joku"}, {"author": None}, {"head_repo": "joku/r"}, {"head_repo": "agenttifirma-bot/muu"},
+                       {"head_ref": "main"}, {"head_ref": "yo/"}, {"head_ref": "yo/A"}, {"head_ref": None},
+                       {"head_ref": "feature/x"}):
+            self.assertFalse(am.arvioi(dict(BOTTI_PR, **kentat), [tied("a.py")], OK)[0], kentat)
+
+    def test_yleiset_ehdot(self):
+        for kentat in ({"draft": True}, {"labels": ["ei-automerge"]}, {"base_ref": "kehitys"}, {"base_ref": None}):
+            self.assertFalse(am.arvioi(dict(PR, **kentat), [tied("a.py")], OK)[0], kentat)
+        self.assertTrue(am.arvioi(dict(PR, base_ref="master"), [tied("a.py")], OK)[0])
+        self.assertFalse(am.arvioi(PR, [], OK)[0])
+        self.assertFalse(am.arvioi(PR, [tied("a.py", changes=am.MAX_RIVEJA + 1)], OK)[0])
+        self.assertTrue(am.arvioi(PR, [tied("a.py", changes=am.MAX_RIVEJA)], OK)[0])
+        self.assertFalse(am.arvioi(PR, [tied("a%d.py" % i, changes=1) for i in range(am.MAX_TIEDOSTOA + 1)], OK)[0])
+        self.assertTrue(am.arvioi(PR, [tied("a%d.py" % i, changes=1) for i in range(am.MAX_TIEDOSTOA)], OK)[0])
+
+
+class WorkflowTesti(unittest.TestCase):
+    def test_workflow_ei_lataa_pr_koodia_ja_rajaa_kommentin(self):
+        teksti = (pathlib.Path(__file__).resolve().parent.parent / ".github" / "workflows" / "automerge.yml").read_text()
+        self.assertIn("pull_request_target", teksti)
+        self.assertIn("issue_comment", teksti)
+        self.assertIn("github.event.comment.user.login == 'agenttifirma-bot'", teksti)
+        self.assertIn("head.repo.owner.login == 'agenttifirma-bot'", teksti)
+        self.assertNotIn("pull_request.head.sha", teksti)
+        self.assertNotIn("head.ref", teksti)
+        self.assertNotIn("ref:", teksti)
+
+
+def gh_feikki(pr, tiedostot, kommentit, kutsut, merge_koodi=0):
+    def f(args, **kw):
+        kutsut.append(args)
+        osat = args[1:]
+        if osat[0] == "api" and "--paginate" in osat:
+            lahde = kommentit if "/comments" in osat[2] else tiedostot
+            ulos = "\n".join(json.dumps(t) for t in lahde)
+        elif osat[0] == "api":
+            ulos = json.dumps({"draft": pr["draft"], "state": pr.get("state", "open"), "user": {"login": pr["author"]},
+                               "head": {"repo": {"full_name": pr["head_repo"]}, "ref": pr["head_ref"], "sha": pr["head_sha"]},
+                               "base": {"repo": {"full_name": pr["base_repo"]}, "ref": pr["base_ref"]},
+                               "labels": [{"name": n} for n in pr["labels"]]})
+        elif osat[:2] == ["pr", "merge"] and "--auto" in osat:
+            return subprocess.CompletedProcess(args, merge_koodi, "", "A" * 100 + "B" * 200 if merge_koodi else "")
+        else:
+            ulos = ""
+        return subprocess.CompletedProcess(args, 0, ulos, "")
+    return f
+
+
+class MainTesti(unittest.TestCase):
+    def aja(self, pr, tiedostot, kommentit, merge_koodi=0):
+        kutsut = []
+        with mock.patch.dict("os.environ", {"GITHUB_REPOSITORY": "o/r", "PR_NUMBER": "7"}, clear=False), \
+                mock.patch.object(am.subprocess, "run", gh_feikki(pr, tiedostot, kommentit, kutsut, merge_koodi)), \
+                mock.patch("builtins.print") as tuloste:
+            koodi = am.main()
+        return koodi, kutsut, tuloste
+
+    def test_kelpaava_kytketaan_head_commitiin_sidottuna(self):
+        koodi, kutsut, _ = self.aja(PR, [tied("a.py")], OK)
+        self.assertEqual(koodi, 0)
+        self.assertIn(["gh", "pr", "merge", "7", "--auto", "--squash", "--match-head-commit", SHA, "--repo", "o/r"], kutsut)
+
+    def test_kelpaamaton_poistaa_automergen(self):
+        koodi, kutsut, tuloste = self.aja(PR, [tied("a.py")], [])
+        self.assertEqual(koodi, 0)
+        self.assertIn(["gh", "pr", "merge", "7", "--disable-auto", "--repo", "o/r"], kutsut)
+        self.assertIn("riippumaton tarkastus: odottaa", tuloste.call_args[0][0])
+
+    def test_suljettu_pr_ei_tee_mitaan(self):
+        koodi, kutsut, _ = self.aja(dict(PR, state="closed"), [tied("a.py")], OK)
+        self.assertEqual(koodi, 0)
+        self.assertFalse(any(k[1:3] == ["pr", "merge"] for k in kutsut))
+
+    def test_kytkenta_epaonnistuu(self):
+        koodi, _, tuloste = self.aja(PR, [tied("a.py")], OK, merge_koodi=1)
+        self.assertEqual(koodi, 1)
+        self.assertEqual(tuloste.call_args[0][0], "Automerge: kytkenta epaonnistui: " + "B" * 200)
+
+    def test_virheellinen_ymparisto(self):
+        for env in ({"GITHUB_REPOSITORY": "x", "PR_NUMBER": "7"}, {"GITHUB_REPOSITORY": "o/r", "PR_NUMBER": "a"}):
+            with mock.patch.dict("os.environ", env, clear=False), mock.patch("builtins.print"):
+                self.assertEqual(am.main(), 2)
+
+    def test_hakuvirhe_ei_tee_mitaan(self):
+        def f(args, **kw):
+            return subprocess.CompletedProcess(args, 1, "", "A" * 100 + "B" * 200)
+        with mock.patch.dict("os.environ", {"GITHUB_REPOSITORY": "o/r", "PR_NUMBER": "7"}, clear=False), \
+                mock.patch.object(am.subprocess, "run", f), mock.patch("builtins.print") as tuloste:
             self.assertEqual(am.main(), 1)
+        self.assertEqual(tuloste.call_args[0][0], "Automerge: arviointi epaonnistui (PR:n haku epaonnistui: %s), ei tehda mitaan" % ("B" * 200))
+
+    def test_hakufunktioiden_virheet(self):
+        def f(args, **kw):
+            return subprocess.CompletedProcess(args, 1, "", "virhe")
+        with mock.patch.object(am.subprocess, "run", f):
+            for fn, alku in ((am.hae_tiedostot, "tiedostojen"), (am.hae_kommentit, "kommenttien")):
+                with self.assertRaises(RuntimeError) as e:
+                    fn("o/r", "7")
+                self.assertTrue(str(e.exception).startswith(alku), str(e.exception))
+
+    def test_gh_kutsun_parametrit(self):
+        nahty = {}
+
+        def f(args, **kw):
+            nahty["args"], nahty["kw"] = args, kw
+            return subprocess.CompletedProcess(args, 0, "", "")
+        with mock.patch.object(am.subprocess, "run", f):
+            am._gh("pr", "view")
+        self.assertEqual(nahty["args"], ["gh", "pr", "view"])
+        self.assertEqual(nahty["kw"], {"capture_output": True, "text": True, "timeout": 120})
+
+    def test_yhteenveto_kirjoittaa_tiedostoon(self):
+        with tempfile.TemporaryDirectory() as d:
+            polku = os.path.join(d, "y.md")
+            with mock.patch.dict("os.environ", {"GITHUB_STEP_SUMMARY": polku}), mock.patch("builtins.print"):
+                am.yhteenveto("eka")
+                am.yhteenveto("toka")
+            self.assertEqual(pathlib.Path(polku).read_text(), "eka\ntoka\n")
+        with mock.patch.dict("os.environ", {"GITHUB_STEP_SUMMARY": "/ei/ole/y.md"}), mock.patch("builtins.print") as p:
+            am.yhteenveto("x")
+        p.assert_called_once_with("x")
 
 
 if __name__ == "__main__":
