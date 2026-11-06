@@ -8,8 +8,13 @@ instead of letting half an answer flow downstream.
 ## Quick start (English)
 
 ```
-pip install .        # no dependencies, Python 3.10+
+pip install llm-stopcheck   # from PyPI (0.1.0); no dependencies, Python 3.10+
+pip install .               # or from a clone of this repo, run in the repo root
 ```
+
+The PyPI release 0.1.0 does not yet include the CLI options `--near-limit`, `--allow-empty` and
+`--version`, nor several input files in one call (see the CLI section). They are on `main` and need a
+newer release or an install from the repo.
 
 ```python
 import llm_stopcheck as sc
@@ -60,7 +65,8 @@ LiteLLM and OpenRouter can normalise a `MAX_TOKENS` stop to `stop`.
 CLI: `llm-stopcheck response.json --max-tokens 3000` or `curl ... | llm-stopcheck - --json`. Several files
 may be given (one output line each); the exit code is the worst one. Exit code 0 = ok, 1 = failed verdict,
 2 = usage or unreadable input. `--near-limit 0.9` changes the `near_limit` warning threshold (default 0.95),
-`--allow-empty` accepts empty content (tool-call-only responses), `--version` prints the version. Log lines are sanitised (ASCII, no newlines, `=` replaced),
+`--allow-empty` accepts empty content (tool-call-only responses), `--version` prints the version
+(these options and multiple files are not in PyPI 0.1.0; one file and `--max-tokens` / `--json` are). Log lines are sanitised (ASCII, no newlines, `=` replaced),
 so model output cannot forge a log record. Tests: `python -m unittest discover -s tests -t .`
 
 ### Limitations
@@ -84,10 +90,13 @@ pieneksi tuomioksi (`Verdict`), jonka koodi on vakaa ja jonka voi kirjata lokiin
 ## Asennus
 
 ```
-pip install .
+pip install llm-stopcheck   # PyPI:stä (versio 0.1.0)
+pip install .               # tai kloonista, ajetaan repon juuressa
 ```
 
-Ei riippuvuuksia, Python 3.10+. Asennus tehdään repon juuressa. Ilman asennusta CLI käynnistyy
+Ei riippuvuuksia, Python 3.10+. PyPI:n versiossa 0.1.0 ei vielä ole valitsimia `--near-limit`,
+`--allow-empty` ja `--version` eikä useamman tiedoston antamista kerralla. Ne ovat `main`-haarassa ja
+vaativat uudemman julkaisun tai asennuksen repon koodista (`pip install .`). Ilman asennusta CLI käynnistyy
 komennolla `PYTHONPATH=src python3 -m llm_stopcheck response.json` (sama kutsu on testattu).
 
 ## Käyttö
@@ -143,8 +152,8 @@ Tulostus: `stopcheck=reasoning_exhausted finish=length native=- tokens=3000/3000
 Poistumiskoodi 0 = ok, 1 = epäonnistunut tuomio, 2 = käyttö- tai lukuvirhe.
 
 Useita tiedostoja voi antaa kerralla (`llm-stopcheck a.json b.json`): jokaisesta tulee oma rivi ja
-poistumiskoodi on pahin niistä. Valitsimet: `--near-limit 0.9` muuttaa `near_limit`-varoituksen rajaa
-(oletus 0.95), `--allow-empty` hyväksyy tyhjän sisällön (pelkät työkalukutsut) ja `--version` tulostaa version.
+poistumiskoodi on pahin niistä (ei PyPI:n versiossa 0.1.0). Valitsimet: `--near-limit 0.9` muuttaa `near_limit`-varoituksen rajaa
+(oletus 0.95), `--allow-empty` hyväksyy tyhjän sisällön (pelkät työkalukutsut) ja `--version` tulostaa version (nämäkin vaativat uudemman version kuin PyPI:n 0.1.0).
 
 `format_record` puhdistaa arvot (vain ASCII, ei rivinvaihtoja, `=` korvataan), joten lokirivin
 väärentäminen mallin tuotoksella ei onnistu.
