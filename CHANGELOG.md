@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- README: now English only (the Finnish half was removed; unique content merged into the English text). `tests/test_readme_sync.py` expects one code table.
 - README: limitations sections (EN and FI), install-without-pip note, and a note that `client` / `log` in the Finnish usage example are the caller's own.
 - CLI: `--near-limit`, `--allow-empty` and `--version`; several files accepted, exit code is the worst one.
 - Julkaisuvalmius: project.urls ja .github/workflows/julkaise.yml (PyPI Trusted Publishing, ajetaan vain release-julkaisusta).
