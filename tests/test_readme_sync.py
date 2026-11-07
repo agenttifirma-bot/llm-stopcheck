@@ -25,7 +25,7 @@ ROW = re.compile(r"^\|\s*`([^`]+)`\s*\|.*\|\s*(`([^`]+)`|-)\s*\|\s*$")
 
 
 def readme_tables():
-    """Code/hint tables of the README (English first, then Finnish) as lists of (code, hint)."""
+    """Code/hint tables of the README as lists of (code, hint)."""
     tables, current = [], None
     with open(README, encoding="utf-8") as fh:
         for line in fh:
@@ -42,21 +42,19 @@ def readme_tables():
 
 
 class ReadmeSyncTests(unittest.TestCase):
-    def test_two_tables_found(self):
-        self.assertEqual(len(readme_tables()), 2)
+    def test_one_table_found(self):
+        self.assertEqual(len(readme_tables()), 1)
 
     def test_expected_hints_cover_all_codes(self):
         self.assertEqual(set(EXPECTED_HINTS), set(sc.ALL_CODES))
 
     def test_codes_match_all_codes_in_order(self):
-        for i, table in enumerate(readme_tables()):
-            with self.subTest(table="en" if i == 0 else "fi"):
-                self.assertEqual([code for code, _ in table], list(sc.ALL_CODES))
+        for table in readme_tables():
+            self.assertEqual([code for code, _ in table], list(sc.ALL_CODES))
 
     def test_hints_match_core(self):
-        for i, table in enumerate(readme_tables()):
-            with self.subTest(table="en" if i == 0 else "fi"):
-                self.assertEqual(dict(table), EXPECTED_HINTS)
+        for table in readme_tables():
+            self.assertEqual(dict(table), EXPECTED_HINTS)
 
 
 if __name__ == "__main__":
