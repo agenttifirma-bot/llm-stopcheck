@@ -80,6 +80,21 @@ LiteLLM and OpenRouter can normalise a `MAX_TOKENS` stop to `stop`.
 
 Content made up only of whitespace counts as empty.
 
+`ensure()` raises a subclass of `StopcheckError` (the full `Verdict` is in `.verdict`, the code in
+`.code`, the hint in `.hint`):
+
+| exception | codes |
+|---|---|
+| `TruncatedError` | `truncated`, `truncated_empty`, `reasoning_exhausted`, `tool_call_truncated` |
+| `EmptyOutputError` | `empty_output` |
+| `ContentFilteredError` | `content_filtered` |
+| `RefusalError` | `refusal` |
+| `ProtocolError` | `missing_finish_reason`, `unknown_finish_reason`, `malformed_response` |
+
+`check()` and `ensure()` also take `near_limit` (default 0.95, the `near_limit` warning threshold) and
+`require_text=False` (accept empty content, for tool-call-only responses), like the CLI options of the
+same purpose.
+
 ## CLI
 
 ```
