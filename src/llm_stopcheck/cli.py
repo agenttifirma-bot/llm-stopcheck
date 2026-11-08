@@ -30,6 +30,9 @@ def main(argv=None) -> int:
         args = parser.parse_args(argv)
     except SystemExit as exit_:
         return 2 if exit_.code else 0
+    if args.max_tokens is not None and args.max_tokens <= 0:
+        print("llm-stopcheck: --max-tokens must be positive", file=sys.stderr)
+        return 2
     if not 0 < args.near_limit <= 1:
         print("llm-stopcheck: --near-limit must be in (0, 1]", file=sys.stderr)
         return 2

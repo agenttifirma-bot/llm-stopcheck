@@ -98,7 +98,7 @@ def _int(value: Any) -> Optional[int]:
         return None
     if isinstance(value, int):
         return value
-    if isinstance(value, float) and value == int(value):
+    if isinstance(value, float) and value == value and abs(value) != float("inf") and value == int(value):
         return int(value)
     return None
 

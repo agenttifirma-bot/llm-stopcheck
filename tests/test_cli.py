@@ -121,6 +121,13 @@ class CliExtraTests(CliTests):
         self.assertEqual(r.returncode, 1)
         self.assertIn("stopcheck=truncated", r.stdout)
 
+    def test_non_positive_max_tokens_is_usage_error(self):
+        path = self.write({"choices": [{"finish_reason": "stop", "message": {"content": "hi"}}]})
+        for value in ("0", "-5"):
+            code, _, err = run([path, "--max-tokens", value])
+            self.assertEqual(code, 2)
+            self.assertIn("--max-tokens", err)
+
 
 if __name__ == "__main__":
     unittest.main()

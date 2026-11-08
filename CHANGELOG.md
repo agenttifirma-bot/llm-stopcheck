@@ -4,6 +4,8 @@
 
 - README: now English only (the Finnish half was removed; unique content merged into the English text). `tests/test_readme_sync.py` expects one code table.
 - README: limitations sections (EN and FI), install-without-pip note, and a note that `client` / `log` in the Finnish usage example are the caller's own.
+- Fix: `check()` raised `OverflowError`/`ValueError` when usage token counts were `Infinity`/`NaN` (Python's JSON parser accepts them); they are now treated as missing, so `check()` never raises.
+- CLI: `--max-tokens` of zero or less is rejected with exit code 2 instead of being silently ignored.
 - CLI: `--near-limit`, `--allow-empty` and `--version`; several files accepted, exit code is the worst one.
 - Julkaisuvalmius: project.urls ja .github/workflows/julkaise.yml (PyPI Trusted Publishing, ajetaan vain release-julkaisusta).
 - README: working `complete_with_retry` example that doubles `max_tokens` while `check()` hints `raise_max_tokens`; tests run the README code with a fake call (length first, then stop).
