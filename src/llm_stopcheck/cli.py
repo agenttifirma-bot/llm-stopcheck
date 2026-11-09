@@ -4,8 +4,10 @@
     llm-stopcheck a.json b.json --near-limit 0.9 --allow-empty
     curl ... | llm-stopcheck - --json
 
-Several files give one output line each; the exit code is the worst of them.
-Exit codes: 0 ok (warnings go to stderr), 1 failed verdict, 2 usage or unreadable input.
+Several files give one output line each, with the file name added (file=...); the exit code is the
+worst of them. A single file prints exactly as before.
+Exit codes: 0 ok (warnings go to stderr), 1 failed verdict, 2 usage error, unreadable input or an
+internal error (only the exception type name is printed).
 """
 from __future__ import annotations
 
@@ -36,10 +38,20 @@ def main(argv=None) -> int:
     if not 0 < args.near_limit <= 1:
         print("llm-stopcheck: --near-limit must be in (0, 1]", file=sys.stderr)
         return 2
-    return max(_check_one(path, args) for path in args.paths)
+    show_name = len(args.paths) > 1
+    return max(_check_guarded(path, args, show_name) for path in args.paths)
 
 
-def _check_one(path, args) -> int:
+def _check_guarded(path, args, show_name) -> int:
+    """Turn an unexpected exception into exit code 2, so it cannot pass for a failed verdict (1)."""
+    try:
+        return _check_one(path, args, show_name)
+    except Exception as exc:  # noqa: BLE001 - last line of defence; the message may hold secrets
+        print("llm-stopcheck: internal error on %s: %s" % (path, type(exc).__name__), file=sys.stderr)
+        return 2
+
+
+def _check_one(path, args, show_name=False) -> int:
     try:
         if path == "-":
             data = json.load(sys.stdin)
@@ -52,7 +64,12 @@ def _check_one(path, args) -> int:
     verdict = core.check(data, max_tokens=args.max_tokens, near_limit=args.near_limit,
                          require_text=not args.allow_empty)
     if args.as_json:
-        print(json.dumps(verdict.as_dict(), sort_keys=True))
+        record = verdict.as_dict()
+        if show_name:
+            record["file"] = path
+        print(json.dumps(record, sort_keys=True))
+    elif show_name:
+        print(errors.format_record(verdict, file=path))
     else:
         print(errors.format_record(verdict))
     if verdict.warnings:

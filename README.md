@@ -104,11 +104,13 @@ curl ... | llm-stopcheck - --json
 
 Output (one line per file):
 `stopcheck=reasoning_exhausted finish=length native=- tokens=3000/3000 reasoning_tokens=3000 hint=raise_max_tokens`.
-Exit code 0 = ok, 1 = failed verdict, 2 = usage error or unreadable input. Warnings (`near_limit`,
+Exit code 0 = ok, 1 = failed verdict, 2 = usage error, unreadable input or an internal error (an
+unexpected exception prints only its type name to stderr, so it is never mistaken for a failed verdict). Warnings (`near_limit`,
 `at_limit`) do not change the exit code and are printed to stderr.
 
-Several files may be given (`llm-stopcheck a.json b.json`): each gets its own output line, and the exit
-code is the worst of them (not in PyPI 0.1.0). Options: `--near-limit 0.9` changes the `near_limit`
+Several files may be given (`llm-stopcheck a.json b.json`): each gets its own output line ending in
+`file=<name>` (a `"file"` key with `--json`), and the exit code is the worst of them (not in PyPI 0.1.0).
+A single file prints without the name. Options: `--near-limit 0.9` changes the `near_limit`
 warning threshold (default 0.95), `--allow-empty` accepts empty content (tool-call-only responses), and
 `--version` prints the version. These three also need a newer version than PyPI 0.1.0; one file,
 `--max-tokens` and `--json` work in 0.1.0.

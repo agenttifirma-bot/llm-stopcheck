@@ -111,6 +111,39 @@ class CliExtraTests(CliTests):
         self.assertIn("stopcheck=truncated", out)
         self.assertIn("/nonexistent/file.json", err)
 
+    def test_multiple_files_output_names_the_file(self):
+        good = self.write({"choices": [{"finish_reason": "stop", "message": {"content": "hi"}}]})
+        bad = self.write({"choices": [{"finish_reason": "length", "message": {"content": "x"}}]})
+        _, out, _ = run([good, bad])
+        lines = out.splitlines()
+        self.assertIn("stopcheck=ok", lines[0])
+        self.assertIn(" file=", lines[0])
+        self.assertIn(os.path.basename(good), lines[0])
+        self.assertIn("stopcheck=truncated", lines[1])
+        self.assertIn(os.path.basename(bad), lines[1])
+        _, out, _ = run([good, bad, "--json"])
+        records = [json.loads(line) for line in out.splitlines()]
+        self.assertEqual([r["file"] for r in records], [good, bad])
+
+    def test_single_file_output_has_no_file_name(self):
+        good = self.write({"choices": [{"finish_reason": "stop", "message": {"content": "hi"}}]})
+        self.assertNotIn("file=", run([good])[1])
+        self.assertNotIn("file", json.loads(run([good, "--json"])[1]))
+
+    def test_unexpected_exception_is_exit_2_with_type_name_only(self):
+        import unittest.mock as mock
+        good = self.write({"choices": [{"finish_reason": "stop", "message": {"content": "hi"}}]})
+        with mock.patch("llm_stopcheck.core.check", side_effect=RuntimeError("secret-token-123")):
+            code, out, err = run([good])
+        self.assertEqual(code, 2)
+        self.assertIn("RuntimeError", err)
+        self.assertNotIn("secret-token-123", err + out)
+
+    def test_exit_codes_are_distinct(self):
+        good = self.write({"choices": [{"finish_reason": "stop", "message": {"content": "hi"}}]})
+        bad = self.write({"choices": [{"finish_reason": "length", "message": {"content": "x"}}]})
+        self.assertEqual([run([good])[0], run([bad])[0], run(["/nonexistent/x.json"])[0]], [0, 1, 2])
+
     def test_module_entry_point(self):
         import subprocess
         import sys
