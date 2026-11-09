@@ -7,7 +7,7 @@
 Several files give one output line each, with the file name added (file=...); the exit code is the
 worst of them. A single file prints exactly as before.
 Exit codes: 0 ok (warnings go to stderr), 1 failed verdict, 2 usage error, unreadable input or an
-internal error (only the exception type name is printed).
+internal error (only the exception type name is printed, never the exception text).
 """
 from __future__ import annotations
 
@@ -59,7 +59,7 @@ def _check_one(path, args, show_name=False) -> int:
             with open(path, encoding="utf-8") as f:
                 data = json.load(f)
     except (OSError, ValueError) as exc:
-        print("llm-stopcheck: cannot read input %s: %s" % (path, exc), file=sys.stderr)
+        print("llm-stopcheck: cannot read input %s: %s" % (path, type(exc).__name__), file=sys.stderr)
         return 2
     verdict = core.check(data, max_tokens=args.max_tokens, near_limit=args.near_limit,
                          require_text=not args.allow_empty)

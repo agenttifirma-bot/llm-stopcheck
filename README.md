@@ -105,7 +105,7 @@ curl ... | llm-stopcheck - --json
 Output (one line per file):
 `stopcheck=reasoning_exhausted finish=length native=- tokens=3000/3000 reasoning_tokens=3000 hint=raise_max_tokens`.
 Exit code 0 = ok, 1 = failed verdict, 2 = usage error, unreadable input or an internal error (an
-unexpected exception prints only its type name to stderr, so it is never mistaken for a failed verdict). Warnings (`near_limit`,
+unexpected exception or an unreadable file prints only the exception type name to stderr, never its text or a resolved path, so it is never mistaken for a failed verdict). Warnings (`near_limit`,
 `at_limit`) do not change the exit code and are printed to stderr.
 
 Several files may be given (`llm-stopcheck a.json b.json`): each gets its own output line ending in

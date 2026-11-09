@@ -41,6 +41,23 @@ class CliTests(unittest.TestCase):
         self.assertEqual(run(["/nonexistent/file.json"])[0], 2)
         self.assertEqual(run([self.write("not json")])[0], 2)
 
+    def test_read_error_shows_only_type(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(os.rmdir, d)
+        old = os.getcwd()
+        os.chdir(d)
+        self.addCleanup(os.chdir, old)
+        code, _, err = run(["missing.json"])
+        self.assertEqual(code, 2)
+        self.assertEqual(err, "llm-stopcheck: cannot read input missing.json: FileNotFoundError\n")
+        self.assertNotIn(d, err)
+        self.assertNotIn("No such file", err)
+        bad = self.write("not json")
+        code, _, err = run([bad])
+        self.assertEqual(code, 2)
+        self.assertTrue(err.rstrip().endswith("JSONDecodeError"))
+        self.assertNotIn("Expecting", err)
+
     def test_usage_exit_2(self):
         self.assertEqual(run([])[0], 2)
 
