@@ -142,6 +142,40 @@ class CliExtraTests(CliTests):
         records = [json.loads(line) for line in out.splitlines()]
         self.assertEqual([r["file"] for r in records], [good, bad])
 
+    def test_multiple_files_long_or_spaced_path_stays_one_token(self):
+        import shutil
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d)
+        sub = os.path.join(d, "a" * 70, "my dir")
+        os.makedirs(sub)
+        paths = []
+        for name, reason in (("first file.json", "stop"), ("second.json", "length")):
+            path = os.path.join(sub, name)
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump({"choices": [{"finish_reason": reason, "message": {"content": "hi"}}]}, f)
+            paths.append(path)
+        code, out, _ = run(paths)
+        self.assertEqual(code, 1)
+        lines = out.splitlines()
+        self.assertEqual(len(lines), 2)
+        for line, path in zip(lines, paths):
+            tokens = line.split(" ")
+            self.assertTrue(all("=" in t for t in tokens), line)
+            self.assertEqual(tokens[-1], "file=" + path.replace(" ", "_"))
+        self.assertTrue(lines[0].endswith("/my_dir/first_file.json"))
+        records = [json.loads(line) for line in run(paths + ["--json"])[1].splitlines()]
+        self.assertEqual([r["file"] for r in records], paths)
+
+    def test_bug_in_multi_file_output_is_reported_not_hidden(self):
+        import unittest.mock as mock
+        good = self.write({"choices": [{"finish_reason": "stop", "message": {"content": "hi"}}]})
+        with mock.patch("llm_stopcheck.errors.format_record", side_effect=TypeError("boom")):
+            code, out, err = run([good, good])
+        self.assertEqual(code, 2)
+        self.assertEqual(out, "")
+        self.assertEqual(err.count("internal error on %s: TypeError" % good), 2)
+        self.assertNotIn("boom", err)
+
     def test_single_file_output_has_no_file_name(self):
         good = self.write({"choices": [{"finish_reason": "stop", "message": {"content": "hi"}}]})
         self.assertNotIn("file=", run([good])[1])

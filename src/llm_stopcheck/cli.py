@@ -69,12 +69,19 @@ def _check_one(path, args, show_name=False) -> int:
             record["file"] = path
         print(json.dumps(record, sort_keys=True))
     elif show_name:
-        print(errors.format_record(verdict, file=path))
+        # Not format_record(file=...): its values are cut to 60 characters, which would drop the
+        # file name from a long path. The path is sanitised the same way (one key=value token).
+        print(errors.format_record(verdict) + " file=" + _file_value(path))
     else:
         print(errors.format_record(verdict))
     if verdict.warnings:
         print("warnings: " + ", ".join(verdict.warnings), file=sys.stderr)
     return 0 if verdict.ok else 1
+
+
+def _file_value(path) -> str:
+    """The path as one log-safe token: characters outside [A-Za-z0-9_.:/+-] become _, no length cut."""
+    return errors._SAFE.sub("_", str(path)) or "-"
 
 
 if __name__ == "__main__":
