@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- README: claims checked against the code. Added the `native_finish_reason` sources, the `--json` keys and the `warn=` suffix; stated that PyPI 0.1.0 accepts `--max-tokens 0`; stated exactly when `malformed_response` is returned (input that cannot be read as a mapping, or a `choices` that is not a non-empty list of objects).
 - README: now English only (the Finnish half was removed; unique content merged into the English text). `tests/test_readme_sync.py` expects one code table.
 - README: limitations sections (EN and FI), install-without-pip note, and a note that `client` / `log` in the Finnish usage example are the caller's own.
 - Fix: `check()` raised `OverflowError`/`ValueError` when usage token counts were `Infinity`/`NaN` (Python's JSON parser accepts them); they are now treated as missing, so `check()` never raises.
