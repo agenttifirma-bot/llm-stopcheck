@@ -33,7 +33,7 @@ import llm_stopcheck as sc
 
 response = client.chat.completions.create(..., max_tokens=3000)
 
-verdict = sc.check(response, max_tokens=3000)   # never raises; bad input gives malformed_response
+verdict = sc.check(response, max_tokens=3000)   # never raises; a non-mapping or a response without choices gives malformed_response
 if not verdict.ok:
     log.error(sc.format_record(verdict, model="my-model"))
     if verdict.hint == sc.HINT_RAISE_MAX_TOKENS:
@@ -60,7 +60,10 @@ def complete_with_retry(call, max_tokens=1000, attempts=3):
 
 `response` is parsed OpenAI-compatible JSON (OpenAI, LiteLLM, OpenRouter, vLLM, Ollama, DeepSeek) or an
 object with `model_dump()`, `to_dict()` or `dict()`. `native_finish_reason` is checked too, because
-LiteLLM and OpenRouter can normalise a `MAX_TOKENS` stop to `stop`.
+LiteLLM and OpenRouter can normalise a `MAX_TOKENS` stop to `stop`. It is read from
+`choices[0].native_finish_reason`, or from `choices[0].provider_specific_fields.native_finish_reason`
+if the first is missing, and matched case-insensitively. A truncation or content-filter value there
+decides the verdict even when `finish_reason` says `stop`.
 
 ## Codes
 
@@ -104,9 +107,14 @@ curl ... | llm-stopcheck - --json
 
 Output (one line per file):
 `stopcheck=reasoning_exhausted finish=length native=- tokens=3000/3000 reasoning_tokens=3000 hint=raise_max_tokens`.
-Exit code 0 = ok, 1 = failed verdict, 2 = usage error or unreadable input (also `--max-tokens` of 0 or
-less, and `--near-limit` outside the range (0, 1]). Warnings (`near_limit`,
-`at_limit`) do not change the exit code and are printed to stderr.
+When a warning applies, the line ends with `warn=near_limit` or `warn=at_limit`. Exit code 0 = ok,
+1 = failed verdict, 2 = usage error or unreadable input (also `--max-tokens` of 0 or less, and
+`--near-limit` outside the range (0, 1]; PyPI 0.1.0 accepts a `--max-tokens` of 0). Warnings
+(`near_limit`, `at_limit`) do not change the exit code and are also printed to stderr.
+
+With `--json` each file prints one JSON object with the keys `ok`, `code`, `reason`, `hint`,
+`finish_reason`, `native_finish_reason`, `completion_tokens`, `reasoning_tokens`, `max_tokens`,
+`content_chars` and `warnings` (a list). Missing values are `null`.
 
 Several files may be given (`llm-stopcheck a.json b.json`): each gets its own output line, and the exit
 code is the worst of them (not in PyPI 0.1.0). Options: `--near-limit 0.9` changes the `near_limit`
